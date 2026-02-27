@@ -2,13 +2,12 @@
 Playback Controller
 
 Handles music playback operations:
-- Play a track
+- Get playback state
+- Start / resume playback
 - Pause playback
-- Resume playback
 - Skip to next track
-- Seek to a position
-- Get current playback status
-- Exit / stop playback
+- Seek to position
+- Stop (transfer to idle)
 
 Sequence Diagram Covered:
 - Integrate Music Playback
@@ -32,142 +31,152 @@ State Transitions (Integrate Music Playback):
   Error -> Loading (retry / startLoading(previousTrack))
 """
 
-from uuid import UUID
+from fastapi import APIRouter, Query, Response, status
 
-from fastapi import APIRouter, Path, Query, status
-
-from app.schemas.common import ErrorResponse
+from app.schemas.common import SpotifyError
 from app.schemas.playback import (
-    PlaybackState,
-    PlaybackStatusResponse,
-    PlayNextResponse,
-    PlayRequest,
-    SeekRequest,
+    PlaybackStateResponse,
+    StartPlaybackRequest,
 )
 
-router = APIRouter(prefix="/playback", tags=["Playback"])
+router = APIRouter(prefix="/me/player", tags=["Player"])
 
 
 @router.get(
-    "/status",
-    response_model=PlaybackStatusResponse,
-    summary="Get current playback status",
+    "",
+    response_model=PlaybackStateResponse,
+    summary="Get playback state",
+    responses={
+        204: {"description": "Playback not available or active"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        403: {"model": SpotifyError, "description": "Bad OAuth request"},
+        429: {"model": SpotifyError, "description": "Rate limit exceeded"},
+    },
 )
-async def get_playback_status():
+async def get_playback_state():
     """
-    Retrieve the current playback state for the authenticated user.
+    Get information about the user's current playback state, including track, progress,
+    and active device.
 
     **Flow** (from sequence diagram — Integrate Music Playback):
     - On page load, the PlaybackController calls `getLastPlayedSong()` on PlaylistDB
       and `getLastPlayedSongData()` on TrackDB.
     - Then `renderInitialView()` displays the current state.
 
-    Returns the current state (idle, loading, playing, paused, error),
-    the current track info, and position within the track.
+    Returns 204 if no playback is active.
+
+    **Required scope:** `user-read-playback-state`
     """
     ...
 
 
-@router.post(
+@router.put(
     "/play",
-    response_model=PlaybackStatusResponse,
-    summary="Play a track",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Start/resume playback",
     responses={
-        404: {"model": ErrorResponse, "description": "Track or playlist not found"},
-        422: {"model": ErrorResponse, "description": "Track cannot be loaded"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        403: {"model": SpotifyError, "description": "Bad OAuth request"},
+        404: {"model": SpotifyError, "description": "Device not found"},
+        429: {"model": SpotifyError, "description": "Rate limit exceeded"},
     },
 )
-async def play_track(body: PlayRequest):
+async def start_resume_playback(
+    body: StartPlaybackRequest | None = None,
+    device_id: str | None = Query(None, description="The ID of the device to target. If not supplied, the user's currently active device is the target."),
+):
     """
-    Start playing a specific track within a playlist context.
+    Start a new context or resume current playback on the user's active device.
 
     **Flow** (from sequence diagram — Integrate Music Playback):
     1. User calls `selectPlay()`.
     2. Controller calls `processPlaySong()` which loads the track.
-    3. Returns `playSong()` — the playback state transitions to Playing.
+    3. Playback starts — state transitions to Playing.
 
-    **State Transition:** Idle → Loading → Playing
+    **State Transition:** Idle → Loading → Active.Playing
+
+    Provide `context_uri` to play a playlist/album/artist context, or `uris` to play specific tracks.
+    Omit body to resume current playback.
+
+    **Required scope:** `user-modify-playback-state`
     """
     ...
 
 
-@router.post(
+@router.put(
     "/pause",
-    response_model=PlaybackStatusResponse,
+    status_code=status.HTTP_204_NO_CONTENT,
     summary="Pause playback",
     responses={
-        409: {"model": ErrorResponse, "description": "Playback is not currently playing"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        403: {"model": SpotifyError, "description": "Bad OAuth request"},
+        429: {"model": SpotifyError, "description": "Rate limit exceeded"},
     },
 )
-async def pause_playback():
+async def pause_playback(
+    device_id: str | None = Query(None, description="The ID of the device to target"),
+):
     """
-    Pause the currently playing track.
+    Pause playback on the user's account.
 
     **Flow** (from sequence diagram — Integrate Music Playback):
     1. User calls `selectPause()`.
     2. Controller calls `processPauseSong()`.
-    3. Returns `pauseSong()` — playback state transitions to Paused.
+    3. Playback is suspended.
 
     **State Transition:** Active.Playing → Active.Paused (suspendAudio)
-    """
-    ...
 
-
-@router.post(
-    "/resume",
-    response_model=PlaybackStatusResponse,
-    summary="Resume playback",
-    responses={
-        409: {"model": ErrorResponse, "description": "Playback is not currently paused"},
-    },
-)
-async def resume_playback():
-    """
-    Resume playback from the paused position.
-
-    **State Transition:** Active.Paused → Active.Playing (resumeAudio)
+    **Required scope:** `user-modify-playback-state`
     """
     ...
 
 
 @router.post(
     "/next",
-    response_model=PlayNextResponse,
-    summary="Skip to next track",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Skip to next",
     responses={
-        404: {"model": ErrorResponse, "description": "No next track available in the playlist"},
-        409: {"model": ErrorResponse, "description": "No active playback session"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        403: {"model": SpotifyError, "description": "Bad OAuth request"},
+        429: {"model": SpotifyError, "description": "Rate limit exceeded"},
     },
 )
-async def play_next_track():
+async def skip_to_next(
+    device_id: str | None = Query(None, description="The ID of the device to target"),
+):
     """
-    Skip to the next track in the current playlist.
+    Skips to next track in the user's queue.
 
     **Flow** (from sequence diagram — Integrate Music Playback):
     1. User calls `selectNext()`.
     2. Controller calls `processPlayNext()`.
     3. Fetches next track via `getNextSong()` from PlaylistDB
        and `getNextSongData()` from TrackDB.
-    4. Returns `playNextSong()` with the new track info.
+    4. Plays the next song via `playNextSong()`.
 
     **State Transition:** Active → Loading (loadNextTrack) → Active.Playing
-    Returns 404 if no next track is available (`!hasNextTrack`).
+
+    **Required scope:** `user-modify-playback-state`
     """
     ...
 
 
-@router.post(
+@router.put(
     "/seek",
-    response_model=PlaybackStatusResponse,
-    summary="Seek to a position in the current track",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Seek to position",
     responses={
-        400: {"model": ErrorResponse, "description": "Invalid seek position"},
-        409: {"model": ErrorResponse, "description": "No active playback session"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        403: {"model": SpotifyError, "description": "Bad OAuth request"},
+        429: {"model": SpotifyError, "description": "Rate limit exceeded"},
     },
 )
-async def seek_position(body: SeekRequest):
+async def seek_to_position(
+    position_ms: int = Query(..., ge=0, description="The position in milliseconds to seek to"),
+    device_id: str | None = Query(None, description="The ID of the device to target"),
+):
     """
-    Seek to a specific position in the currently playing track.
+    Seeks to the given position in the user's currently playing track.
 
     **Flow** (from sequence diagram — Integrate Music Playback):
     1. User calls `selectSeek()`.
@@ -175,19 +184,25 @@ async def seek_position(body: SeekRequest):
     3. Audio engine performs `seekSong()` to the new position.
 
     **State Transition:** Active → Loading (bufferFrom(newPosition)) → Active.Playing (seekCompleted)
+
+    **Required scope:** `user-modify-playback-state`
     """
     ...
 
 
-@router.post(
+@router.put(
     "/stop",
-    response_model=PlaybackStatusResponse,
-    summary="Stop playback and return to idle",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Stop playback",
     responses={
-        409: {"model": ErrorResponse, "description": "No active playback session"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        403: {"model": SpotifyError, "description": "Bad OAuth request"},
+        429: {"model": SpotifyError, "description": "Rate limit exceeded"},
     },
 )
-async def stop_playback():
+async def stop_playback(
+    device_id: str | None = Query(None, description="The ID of the device to target"),
+):
     """
     Stop playback entirely and return to idle state.
 
@@ -197,5 +212,7 @@ async def stop_playback():
     3. UI navigates back to playlist view via `renderPlaylistUI()`.
 
     **State Transition:** Active → Idle (terminatePlayback)
+
+    **Required scope:** `user-modify-playback-state`
     """
     ...

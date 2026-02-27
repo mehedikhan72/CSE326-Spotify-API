@@ -21,11 +21,9 @@ State Transitions (Share Playlist Link):
     ShareFlow -> Idle (closeShareMenu / cleanup)
 """
 
-from uuid import UUID
+from fastapi import APIRouter, Path
 
-from fastapi import APIRouter, Path, status
-
-from app.schemas.common import ErrorResponse
+from app.schemas.common import SpotifyError
 from app.schemas.share import ShareLinkResponse, ShareMenuResponse
 
 router = APIRouter(tags=["Share"])
@@ -36,11 +34,12 @@ router = APIRouter(tags=["Share"])
     response_model=ShareMenuResponse,
     summary="Get share menu data for a playlist",
     responses={
-        404: {"model": ErrorResponse, "description": "Playlist not found"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        404: {"model": SpotifyError, "description": "Playlist not found"},
     },
 )
 async def get_share_menu(
-    playlist_id: UUID = Path(..., description="ID of the playlist to share"),
+    playlist_id: str = Path(..., description="The Spotify ID of the playlist to share"),
 ):
     """
     Retrieve playlist metadata needed to render the share menu.
@@ -60,12 +59,13 @@ async def get_share_menu(
     response_model=ShareLinkResponse,
     summary="Get or generate a shareable link for a playlist",
     responses={
-        404: {"model": ErrorResponse, "description": "Playlist not found"},
-        500: {"model": ErrorResponse, "description": "Failed to generate share link"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        404: {"model": SpotifyError, "description": "Playlist not found"},
+        500: {"model": SpotifyError, "description": "Failed to generate share link"},
     },
 )
 async def get_share_link(
-    playlist_id: UUID = Path(..., description="ID of the playlist"),
+    playlist_id: str = Path(..., description="The Spotify ID of the playlist"),
 ):
     """
     Generate or retrieve a shareable link for the playlist (copy-to-clipboard link).

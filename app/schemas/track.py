@@ -1,62 +1,90 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from uuid import UUID
+
+from app.schemas.playlist import ImageObject
 
 
-class TrackResponse(BaseModel):
-    id: UUID
-    title: str
-    artist: str
-    album: str | None = None
+class ArtistObject(BaseModel):
+    id: str
+    name: str
+    href: str
+    uri: str
+    external_urls: dict[str, str] = {}
+
+
+class AlbumObject(BaseModel):
+    id: str
+    name: str
+    href: str
+    uri: str
+    images: list[ImageObject] = []
+    release_date: str | None = None
+    external_urls: dict[str, str] = {}
+
+
+class TrackObject(BaseModel):
+    id: str
+    name: str
+    href: str
+    uri: str
     duration_ms: int
-    cover_image_url: str | None = None
+    artists: list[ArtistObject] = []
+    album: AlbumObject | None = None
+    external_urls: dict[str, str] = {}
+    is_local: bool = False
 
 
-class PlaylistTrackResponse(BaseModel):
-    id: UUID
-    track: TrackResponse
-    position: int
-    added_by: UUID
-    added_at: datetime
+class PlaylistTrackObject(BaseModel):
+    added_at: datetime | None = None
+    added_by: dict | None = None
+    is_local: bool = False
+    track: TrackObject
 
 
-# --- Add Track to Playlist ---
-
-class AddTrackToPlaylistRequest(BaseModel):
-    track_id: UUID = Field(..., description="ID of the track to add")
-
-
-class AddTrackToPlaylistResponse(BaseModel):
-    message: str
-    playlist_track: PlaylistTrackResponse
+class AddedByObject(BaseModel):
+    id: str
+    href: str
+    external_urls: dict[str, str] = {}
 
 
-# --- Reorder Tracks ---
+# --- Add Items to Playlist ---
 
-class ReorderTracksRequest(BaseModel):
-    track_positions: list[dict] = Field(
+class AddItemsRequest(BaseModel):
+    uris: list[str] = Field(
         ...,
-        description="List of {track_id, new_position} mappings representing the new order",
-        examples=[[{"track_id": "uuid-1", "new_position": 0}, {"track_id": "uuid-2", "new_position": 1}]],
+        max_length=100,
+        description="A list of Spotify URIs to add (max 100). E.g. spotify:track:4iV5W9uYEdYUVa79Axb7Rh",
     )
+    position: int | None = Field(None, ge=0, description="Zero-based position to insert the items. If omitted, items are appended.")
 
 
-class ReorderTracksResponse(BaseModel):
-    message: str
-    tracks: list[PlaylistTrackResponse]
+# --- Reorder / Replace Playlist Items ---
+
+class ReorderItemsRequest(BaseModel):
+    range_start: int = Field(..., ge=0, description="The position of the first item to be reordered")
+    insert_before: int = Field(..., ge=0, description="The position where the items should be inserted")
+    range_length: int = Field(1, ge=1, description="The number of items to be reordered (default: 1)")
+    snapshot_id: str | None = Field(None, description="The playlist's snapshot ID against which you want to make the changes")
 
 
-# --- Remove Track ---
+# --- Remove Items from Playlist ---
 
-class RemoveTrackResponse(BaseModel):
-    message: str
+class TrackUri(BaseModel):
+    uri: str = Field(..., description="Spotify URI. E.g. spotify:track:4iV5W9uYEdYUVa79Axb7Rh")
 
 
-# --- Playlist Tracks List ---
+class RemoveItemsRequest(BaseModel):
+    tracks: list[TrackUri] = Field(..., max_length=100, description="An array of objects containing Spotify URIs (max 100)")
+    snapshot_id: str | None = Field(None, description="The playlist's snapshot ID against which you want to make the changes")
 
-class PlaylistTracksListResponse(BaseModel):
+
+# --- Playlist Items List ---
+
+class PlaylistItemsResponse(BaseModel):
+    href: str
+    limit: int
+    next: str | None = None
+    offset: int
+    previous: str | None = None
     total: int
-    page: int
-    page_size: int
-    total_pages: int
-    items: list[PlaylistTrackResponse]
+    items: list[PlaylistTrackObject]

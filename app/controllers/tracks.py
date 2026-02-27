@@ -2,11 +2,12 @@
 Track Management Controller
 
 Handles track operations within a playlist:
-- Searching tracks (with keyword and filters)
-- Getting suggested tracks
-- Adding a track to a playlist (with duplicate check)
-- Reordering tracks in a playlist
-- Removing a track from a playlist
+- Searching tracks (with keyword and type filter)
+- Getting suggested tracks (recommendations)
+- Adding items to a playlist (with duplicate check)
+- Reordering items in a playlist
+- Removing items from a playlist
+- Listing playlist items
 
 Sequence Diagrams Covered:
 - Search and Add Track to Playlist
@@ -26,19 +27,15 @@ State Transitions (Reorder/Remove):
   Idle -> Removing -> Confirming -> Removed -> Idle
 """
 
-from uuid import UUID
-
 from fastapi import APIRouter, Path, Query, status
 
-from app.schemas.common import ErrorResponse
-from app.schemas.search import SearchFilterType, SearchTracksResponse, SuggestedTracksResponse
+from app.schemas.common import SnapshotResponse, SpotifyError
+from app.schemas.search import SearchResponse, SuggestedTracksResponse
 from app.schemas.track import (
-    AddTrackToPlaylistRequest,
-    AddTrackToPlaylistResponse,
-    PlaylistTracksListResponse,
-    RemoveTrackResponse,
-    ReorderTracksRequest,
-    ReorderTracksResponse,
+    AddItemsRequest,
+    PlaylistItemsResponse,
+    RemoveItemsRequest,
+    ReorderItemsRequest,
 )
 
 router = APIRouter(tags=["Tracks"])
@@ -47,22 +44,24 @@ router = APIRouter(tags=["Tracks"])
 # --- Search ---
 
 @router.get(
-    "/tracks/search",
-    response_model=SearchTracksResponse,
+    "/search",
+    response_model=SearchResponse,
     tags=["Search"],
-    summary="Search for tracks",
+    summary="Search for item",
     responses={
-        400: {"model": ErrorResponse, "description": "Invalid query or filter"},
+        400: {"model": SpotifyError, "description": "Bad request"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        429: {"model": SpotifyError, "description": "Rate limit exceeded"},
     },
 )
-async def search_tracks(
-    query: str = Query(..., min_length=1, description="Search keyword"),
-    filter: SearchFilterType = Query(SearchFilterType.ALL, description="Filter by field"),
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+async def search_for_item(
+    q: str = Query(..., min_length=1, description="Your search query. You can narrow results using field filters: artist, album, track."),
+    type: str = Query(..., description="A comma-separated list of item types to search across. Valid types: track, artist, album."),
+    limit: int = Query(20, ge=1, le=50, description="Maximum number of results to return. Default: 20. Maximum: 50."),
+    offset: int = Query(0, ge=0, le=1000, description="The index of the first result to return. Default: 0. Maximum: 1000."),
 ):
     """
-    Search the track catalog by keyword with optional filtering.
+    Get Spotify catalog information about albums, artists, or tracks that match a keyword string.
 
     **Flow** (from sequence diagram — Search and Add Track to Playlist):
     1. User enters a keyword via `enterKeyword()`.
@@ -70,8 +69,8 @@ async def search_tracks(
     3. Returns matching tracks.
 
     **Filtering** (from sequence diagram — chooseFilter/applyFilter):
-    - After initial results are shown, user can apply filters.
-    - `filter` parameter narrows results by title, artist, or album.
+    - The `q` parameter supports field filters like `artist:Coldplay` or `album:Parachutes`.
+    - The `type` parameter controls which result sets are returned.
 
     **State Transition:** Idle → Searching → Results / Empty / Failure
     """
@@ -79,127 +78,149 @@ async def search_tracks(
 
 
 @router.get(
-    "/playlists/{playlist_id}/suggested-tracks",
+    "/playlists/{playlist_id}/recommendations",
     response_model=SuggestedTracksResponse,
     tags=["Search"],
-    summary="Get suggested tracks for a playlist",
+    summary="Get recommended tracks for a playlist",
+    responses={
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        404: {"model": SpotifyError, "description": "Playlist not found"},
+    },
 )
-async def get_suggested_tracks(
-    playlist_id: UUID = Path(..., description="ID of the playlist"),
+async def get_recommended_tracks(
+    playlist_id: str = Path(..., description="The Spotify ID of the playlist"),
+    limit: int = Query(20, ge=1, le=100, description="The maximum number of recommendations to return"),
 ):
     """
-    Get track suggestions based on the playlist's existing songs.
+    Get track recommendations based on the playlist's existing songs.
 
     **Flow** (from sequence diagram — Search and Add Track to Playlist):
     1. On page load, controller calls `getExistingSongs()` from PlaylistDB.
     2. Uses existing songs to call `getSuggestedTracks()` from TrackDB.
-    3. Returns suggestions before the user types any search query.
+    3. Returns suggested tracks before the user types any search query.
     """
     ...
 
 
-# --- Playlist Tracks CRUD ---
+# --- Playlist Items CRUD ---
 
 @router.get(
     "/playlists/{playlist_id}/tracks",
-    response_model=PlaylistTracksListResponse,
+    response_model=PlaylistItemsResponse,
     tags=["Tracks"],
-    summary="List tracks in a playlist",
+    summary="Get playlist items",
     responses={
-        404: {"model": ErrorResponse, "description": "Playlist not found"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        404: {"model": SpotifyError, "description": "Playlist not found"},
     },
 )
-async def list_playlist_tracks(
-    playlist_id: UUID = Path(..., description="ID of the playlist"),
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+async def get_playlist_items(
+    playlist_id: str = Path(..., description="The Spotify ID of the playlist"),
+    limit: int = Query(20, ge=1, le=50, description="The maximum number of items to return. Default: 20. Maximum: 50."),
+    offset: int = Query(0, ge=0, description="The index of the first item to return. Default: 0."),
+    fields: str | None = Query(None, description="Filters for the query: a comma-separated list of the fields to return"),
 ):
     """
-    Retrieve a paginated list of tracks in a playlist, ordered by position.
+    Get full details of the items of a playlist owned by a Spotify user.
 
     **Flow** (from sequence diagram — Reorder or Remove Tracks):
     - Corresponds to `loadEditablePlaylist()` → `renderEditablePlaylist()`.
-    - Returns tracks with their current positions.
+    - Returns tracks with their current positions, ordered by position.
     """
     ...
 
 
 @router.post(
     "/playlists/{playlist_id}/tracks",
-    response_model=AddTrackToPlaylistResponse,
+    response_model=SnapshotResponse,
     status_code=status.HTTP_201_CREATED,
     tags=["Tracks"],
-    summary="Add a track to a playlist",
+    summary="Add items to playlist",
     responses={
-        404: {"model": ErrorResponse, "description": "Playlist or track not found"},
-        409: {"model": ErrorResponse, "description": "Track already exists in playlist (duplicate)"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        403: {"model": SpotifyError, "description": "Bad OAuth request"},
+        429: {"model": SpotifyError, "description": "Rate limit exceeded"},
     },
 )
-async def add_track_to_playlist(
-    body: AddTrackToPlaylistRequest,
-    playlist_id: UUID = Path(..., description="ID of the playlist"),
+async def add_items_to_playlist(
+    body: AddItemsRequest,
+    playlist_id: str = Path(..., description="The Spotify ID of the playlist"),
 ):
     """
-    Add a track to a playlist after duplicate validation.
+    Add one or more items to a user's playlist.
+
+    Items are identified by their Spotify URIs (e.g. `spotify:track:4iV5W9uYEdYUVa79Axb7Rh`).
+    A maximum of 100 items can be added in one request.
 
     **Flow** (from sequence diagram — Search and Add Track to Playlist):
     1. User selects a track via `addTrackToPlaylist()`.
     2. Controller calls `checkForDuplicates()` on PlaylistDB.
-    3. If duplicate (`isDup`), return 409 with a duplicate warning.
+    3. If duplicate (`isDup`), return error.
     4. If not duplicate, call `addTrackToPlaylist()` on PlaylistDB.
-    5. Return the newly added playlist track with confirmation.
+    5. Returns `snapshot_id` confirming the playlist version.
 
     **State Transition:** Results → Validating → [!isDuplicate] Adding → Results
-                                              → [isDuplicate] Duplicate (409)
+
+    **Required scope:** `playlist-modify-public` or `playlist-modify-private`
     """
     ...
 
 
 @router.put(
-    "/playlists/{playlist_id}/tracks/reorder",
-    response_model=ReorderTracksResponse,
+    "/playlists/{playlist_id}/tracks",
+    response_model=SnapshotResponse,
     tags=["Tracks"],
-    summary="Reorder tracks in a playlist",
+    summary="Update playlist items",
     responses={
-        400: {"model": ErrorResponse, "description": "Invalid track positions"},
-        404: {"model": ErrorResponse, "description": "Playlist not found"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        403: {"model": SpotifyError, "description": "Bad OAuth request"},
+        429: {"model": SpotifyError, "description": "Rate limit exceeded"},
     },
 )
-async def reorder_tracks(
-    body: ReorderTracksRequest,
-    playlist_id: UUID = Path(..., description="ID of the playlist"),
+async def reorder_playlist_items(
+    body: ReorderItemsRequest,
+    playlist_id: str = Path(..., description="The Spotify ID of the playlist"),
 ):
     """
-    Save a new track ordering for a playlist.
+    Reorder items in a playlist.
+
+    Uses `range_start`, `insert_before`, and `range_length` to describe the reorder operation.
+    Optionally provide `snapshot_id` for optimistic concurrency control.
 
     **Flow** (from sequence diagram — Reorder or Remove Tracks):
     1. User performs drag-and-drop reordering (`dragAndDropReorder()`) — may happen multiple
        times in a loop, with `updateReorder()` updating the local UI state.
     2. User clicks save (`clickSaveOrder()`).
     3. Controller calls `saveOrder()` → `confirmUpdatedOrder()` on PlaylistDB.
-    4. On success, returns the updated track list and UI navigates to view mode
-       via `returnToViewmenu()`.
+    4. Returns `snapshot_id` of the updated playlist.
 
     **State Transition:** Reordering [loop] → Saving → Saved
+
+    **Required scope:** `playlist-modify-public` or `playlist-modify-private`
     """
     ...
 
 
 @router.delete(
-    "/playlists/{playlist_id}/tracks/{track_id}",
-    response_model=RemoveTrackResponse,
+    "/playlists/{playlist_id}/tracks",
+    response_model=SnapshotResponse,
     tags=["Tracks"],
-    summary="Remove a track from a playlist",
+    summary="Remove playlist items",
     responses={
-        404: {"model": ErrorResponse, "description": "Playlist or track not found"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        403: {"model": SpotifyError, "description": "Bad OAuth request"},
+        429: {"model": SpotifyError, "description": "Rate limit exceeded"},
     },
 )
-async def remove_track_from_playlist(
-    playlist_id: UUID = Path(..., description="ID of the playlist"),
-    track_id: UUID = Path(..., description="ID of the track to remove"),
+async def remove_playlist_items(
+    body: RemoveItemsRequest,
+    playlist_id: str = Path(..., description="The Spotify ID of the playlist"),
 ):
     """
-    Remove a specific track from a playlist.
+    Remove one or more items from a user's playlist.
+
+    Items are identified by their Spotify URIs in the request body.
+    A maximum of 100 items can be removed in one request.
 
     **Flow** (from sequence diagram — Reorder or Remove Tracks):
     1. User clicks remove (`clickRemoveTrack()`).
@@ -207,8 +228,10 @@ async def remove_track_from_playlist(
        via `hideAndShowConfirmation()`.
     3. User confirms (`confirmRemove()`).
     4. Controller calls `getRemovalConfirm()` → `removeTrackFromPlaylist()` on PlaylistDB.
-    5. Returns success and refreshes the edit UI via `showPlaylistEditUI()`.
+    5. Returns `snapshot_id` of the updated playlist.
 
     **State Transition:** Idle → Removing → Confirming → Removed
+
+    **Required scope:** `playlist-modify-public` or `playlist-modify-private`
     """
     ...

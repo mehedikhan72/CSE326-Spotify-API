@@ -1,63 +1,63 @@
 from pydantic import BaseModel, Field
-from datetime import datetime
-from enum import Enum
-from uuid import UUID
 
 
-class PlaylistType(str, Enum):
-    REGULAR = "regular"
-    COLLABORATIVE = "collaborative"
+class ImageObject(BaseModel):
+    url: str
+    height: int | None = None
+    width: int | None = None
 
 
-class PlaylistVisibility(str, Enum):
-    PUBLIC = "public"
-    PRIVATE = "private"
+class OwnerObject(BaseModel):
+    id: str
+    display_name: str
+    href: str
+    external_urls: dict[str, str] = {}
 
 
 # --- Create Playlist ---
 
 class CreatePlaylistRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100, description="Name of the playlist")
-    type: PlaylistType = Field(..., description="Type of playlist: regular or collaborative")
+    name: str = Field(..., min_length=1, max_length=100, description="The name for the new playlist")
+    public: bool = Field(True, description="If true the playlist will be public, if false it will be private")
+    collaborative: bool = Field(
+        False,
+        description="If true, the playlist will be collaborative. "
+        "Note: to create a collaborative playlist you must also set public to false.",
+    )
+    description: str | None = Field(None, max_length=300, description="Playlist description as displayed in Spotify Clients")
 
 
 class PlaylistResponse(BaseModel):
-    id: UUID
+    id: str
     name: str
-    type: PlaylistType
-    visibility: PlaylistVisibility
-    cover_image_url: str | None = None
-    owner_id: UUID
-    invite_link: str | None = None
-    track_count: int = 0
-    created_at: datetime
-    updated_at: datetime
+    description: str | None = None
+    public: bool
+    collaborative: bool
+    snapshot_id: str
+    href: str
+    uri: str
+    external_urls: dict[str, str] = {}
+    owner: OwnerObject
+    images: list[ImageObject] = []
+    tracks: dict = Field(default_factory=dict, description="Tracks pagination object")
 
 
-# --- Update Playlist Metadata ---
+# --- Update Playlist Details ---
 
-class UpdatePlaylistMetadataRequest(BaseModel):
-    name: str | None = Field(None, min_length=1, max_length=100, description="Updated playlist name")
-    visibility: PlaylistVisibility | None = Field(None, description="Updated visibility setting")
-    cover_image_url: str | None = Field(None, description="Updated cover image URL")
+class UpdatePlaylistDetailsRequest(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=100, description="The new name for the playlist")
+    public: bool | None = Field(None, description="If true the playlist will be public, if false it will be private")
+    collaborative: bool | None = Field(None, description="If true, other users can modify the playlist")
+    description: str | None = Field(None, max_length=300, description="New playlist description")
 
 
 # --- Playlist List ---
 
-class PlaylistSummary(BaseModel):
-    id: UUID
-    name: str
-    type: PlaylistType
-    visibility: PlaylistVisibility
-    cover_image_url: str | None = None
-    track_count: int
-    owner_id: UUID
-    created_at: datetime
-
-
 class PlaylistListResponse(BaseModel):
+    href: str
+    limit: int
+    next: str | None = None
+    offset: int
+    previous: str | None = None
     total: int
-    page: int
-    page_size: int
-    total_pages: int
-    items: list[PlaylistSummary]
+    items: list[PlaylistResponse]

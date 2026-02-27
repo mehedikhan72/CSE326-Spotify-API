@@ -1,26 +1,28 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from enum import Enum
-from uuid import UUID
 
-from app.schemas.track import TrackResponse
+from app.schemas.track import TrackObject
 
 
-class SearchFilterType(str, Enum):
-    ALL = "all"
-    TITLE = "title"
+class SearchType(str, Enum):
+    TRACK = "track"
     ARTIST = "artist"
     ALBUM = "album"
 
 
-class SearchTracksResponse(BaseModel):
+class TracksPage(BaseModel):
+    href: str
+    limit: int
+    next: str | None = None
+    offset: int
+    previous: str | None = None
     total: int
-    page: int
-    page_size: int
-    total_pages: int
-    query: str
-    filter: SearchFilterType
-    items: list[TrackResponse]
+    items: list[TrackObject]
+
+
+class SearchResponse(BaseModel):
+    tracks: TracksPage | None = None
 
 
 class SuggestedTracksResponse(BaseModel):
-    items: list[TrackResponse]
+    tracks: list[TrackObject]

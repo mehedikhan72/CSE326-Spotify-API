@@ -2,10 +2,10 @@
 Playlist Controller
 
 Handles playlist lifecycle operations:
-- Creating a new playlist (regular or collaborative)
+- Creating a new playlist for the current user
 - Retrieving playlist details and listing user playlists
-- Updating playlist metadata (name, visibility, cover image)
-- Deleting a playlist
+- Changing playlist details (name, public/private, collaborative, description)
+- Deleting a playlist (unfollowing)
 
 Sequence Diagrams Covered:
 - Creating Playlist
@@ -23,16 +23,14 @@ State Transitions (Edit Playlist Metadata):
     -> [isValid] Saved -> Idle
 """
 
-from uuid import UUID
+from fastapi import APIRouter, Path, Query, Response, status
 
-from fastapi import APIRouter, Path, Query, status
-
-from app.schemas.common import ErrorResponse, SuccessMessage
+from app.schemas.common import SpotifyError
 from app.schemas.playlist import (
     CreatePlaylistRequest,
     PlaylistListResponse,
     PlaylistResponse,
-    UpdatePlaylistMetadataRequest,
+    UpdatePlaylistDetailsRequest,
 )
 
 router = APIRouter(prefix="/playlists", tags=["Playlists"])
@@ -42,24 +40,30 @@ router = APIRouter(prefix="/playlists", tags=["Playlists"])
     "",
     response_model=PlaylistResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Create a new playlist",
+    summary="Create playlist",
     responses={
-        400: {"model": ErrorResponse, "description": "Validation error (e.g. invalid name)"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        403: {"model": SpotifyError, "description": "Bad OAuth request"},
+        429: {"model": SpotifyError, "description": "Rate limit exceeded"},
     },
 )
 async def create_playlist(body: CreatePlaylistRequest):
     """
-    Create a new playlist for the authenticated user.
+    Create a playlist for the current user.
+
+    The playlist will be empty until you add tracks.
 
     **Flow** (from sequence diagram — Creating Playlist):
     1. Validate the playlist name via `validateName()`.
-    2. If invalid, return 400 with error details.
+    2. If invalid, return error.
     3. If valid, create the playlist record via `createPlaylistRecord(name, type, owner_id)`.
-    4. If the playlist type is `collaborative`, automatically generate an invite link
+    4. If `collaborative` is true (and `public` is false), automatically generate an invite link
        via `generateInviteLink()`.
-    5. Return the created playlist with metadata and optional invite link.
+    5. Return the created playlist object.
 
     **State Transition:** Idle → Validating → Creating → Processing → Created
+
+    **Required scope:** `playlist-modify-public` or `playlist-modify-private`
     """
     ...
 
@@ -67,16 +71,23 @@ async def create_playlist(body: CreatePlaylistRequest):
 @router.get(
     "",
     response_model=PlaylistListResponse,
-    summary="List playlists for the authenticated user",
+    summary="Get current user's playlists",
+    responses={
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        403: {"model": SpotifyError, "description": "Bad OAuth request"},
+        429: {"model": SpotifyError, "description": "Rate limit exceeded"},
+    },
 )
-async def list_playlists(
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+async def get_current_user_playlists(
+    limit: int = Query(20, ge=1, le=50, description="The maximum number of items to return. Default: 20. Minimum: 1. Maximum: 50."),
+    offset: int = Query(0, ge=0, description="The index of the first item to return. Default: 0 (the first item)."),
 ):
     """
-    Retrieve a paginated list of playlists owned by or shared with the authenticated user.
+    Get a list of the playlists owned or followed by the current user.
 
     Results include both owned playlists and playlists where the user is a collaborator.
+
+    **Required scope:** `playlist-read-private`
     """
     ...
 
@@ -84,67 +95,74 @@ async def list_playlists(
 @router.get(
     "/{playlist_id}",
     response_model=PlaylistResponse,
-    summary="Get playlist details",
+    summary="Get playlist",
     responses={
-        404: {"model": ErrorResponse, "description": "Playlist not found"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        403: {"model": SpotifyError, "description": "Bad OAuth request"},
+        429: {"model": SpotifyError, "description": "Rate limit exceeded"},
     },
 )
 async def get_playlist(
-    playlist_id: UUID = Path(..., description="ID of the playlist to retrieve"),
+    playlist_id: str = Path(..., description="The Spotify ID of the playlist"),
+    fields: str | None = Query(None, description="Filters for the query: a comma-separated list of the fields to return"),
 ):
     """
-    Retrieve full details of a single playlist.
+    Get a playlist owned by a Spotify user.
 
     **Flow** (from sequence diagram — Edit Playlist Metadata):
     - Corresponds to `getPlaylistMetadata()` followed by `renderInitialView()`.
-    - Returns current name, visibility, cover image, track count, and owner info.
+    - Returns current name, description, public/collaborative status, images, and owner info.
     """
     ...
 
 
-@router.patch(
+@router.put(
     "/{playlist_id}",
-    response_model=PlaylistResponse,
-    summary="Update playlist metadata",
+    status_code=status.HTTP_200_OK,
+    summary="Change playlist details",
     responses={
-        400: {"model": ErrorResponse, "description": "Validation error"},
-        404: {"model": ErrorResponse, "description": "Playlist not found"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        403: {"model": SpotifyError, "description": "Bad OAuth request"},
+        429: {"model": SpotifyError, "description": "Rate limit exceeded"},
     },
 )
-async def update_playlist_metadata(
-    body: UpdatePlaylistMetadataRequest,
-    playlist_id: UUID = Path(..., description="ID of the playlist to update"),
+async def change_playlist_details(
+    body: UpdatePlaylistDetailsRequest,
+    playlist_id: str = Path(..., description="The Spotify ID of the playlist"),
 ):
     """
-    Update the metadata of an existing playlist.
-
-    Supports partial updates — only provided fields are changed. Omitted fields remain unchanged.
+    Change a playlist's name, public/private state, collaborative status, and/or description.
 
     **Flow** (from sequence diagram — Edit Playlist Metadata):
     1. User updates name (`enterPlaylistName`), visibility (`selectVisibility`),
-       and/or cover image (`selectPlaylistCover`).
+       and/or cover (`selectPlaylistCover`).
     2. On `confirmUpdate()`, the controller calls `updatePlaylist(name, cover, visibility)`.
     3. The database validates and persists the changes.
-    4. If invalid, return 400 error. If valid, return the updated playlist.
+    4. Returns empty body on success.
 
     **State Transition:** Editing → Confirming → [isValid] Saved / [!isValid] Error
+
+    **Required scope:** `playlist-modify-public` or `playlist-modify-private`
     """
     ...
 
 
 @router.delete(
-    "/{playlist_id}",
-    response_model=SuccessMessage,
-    summary="Delete a playlist",
+    "/{playlist_id}/followers",
+    status_code=status.HTTP_200_OK,
+    summary="Unfollow playlist",
     responses={
-        404: {"model": ErrorResponse, "description": "Playlist not found"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        403: {"model": SpotifyError, "description": "Bad OAuth request"},
+        429: {"model": SpotifyError, "description": "Rate limit exceeded"},
     },
 )
-async def delete_playlist(
-    playlist_id: UUID = Path(..., description="ID of the playlist to delete"),
+async def unfollow_playlist(
+    playlist_id: str = Path(..., description="The Spotify ID of the playlist"),
 ):
     """
-    Permanently delete a playlist.
+    Remove the current user as a follower of a playlist.
+    For the owner, this effectively deletes the playlist.
 
     **Flow** (from sequence diagram — Edit Playlist Metadata):
     1. `deletePlaylist()` triggers `processDeletion()` on the controller.
@@ -152,6 +170,6 @@ async def delete_playlist(
     3. On confirmation, calls `deletePlaylist()` on the database.
     4. Returns success and the UI navigates back to playlist list via `showPlaylistUI()`.
 
-    Only the playlist owner can delete a playlist.
+    **Required scope:** `playlist-modify-public` or `playlist-modify-private`
     """
     ...

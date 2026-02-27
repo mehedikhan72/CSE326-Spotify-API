@@ -21,8 +21,6 @@ State Transitions (Invite Collaborators):
         -> [isActive] Joining (updateCollaboratorLink) -> Joined (renderPlaylistUI)
 """
 
-from uuid import UUID
-
 from fastapi import APIRouter, Path, status
 
 from app.schemas.collaboration import (
@@ -31,7 +29,7 @@ from app.schemas.collaboration import (
     CollaboratorsListResponse,
     InviteLinkResponse,
 )
-from app.schemas.common import ErrorResponse, SuccessMessage
+from app.schemas.common import SpotifyError
 
 router = APIRouter(tags=["Collaboration"])
 
@@ -39,14 +37,15 @@ router = APIRouter(tags=["Collaboration"])
 @router.get(
     "/playlists/{playlist_id}/invite-link",
     response_model=InviteLinkResponse,
-    summary="Get the invite link for a collaborative playlist",
+    summary="Get invite link for a collaborative playlist",
     responses={
-        403: {"model": ErrorResponse, "description": "Playlist is not collaborative or user is not the owner"},
-        404: {"model": ErrorResponse, "description": "Playlist not found"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        403: {"model": SpotifyError, "description": "Playlist is not collaborative or user is not the owner"},
+        404: {"model": SpotifyError, "description": "Playlist not found"},
     },
 )
 async def get_invite_link(
-    playlist_id: UUID = Path(..., description="ID of the collaborative playlist"),
+    playlist_id: str = Path(..., description="The Spotify ID of the collaborative playlist"),
 ):
     """
     Retrieve (or generate) the collaboration invite link for a playlist.
@@ -57,7 +56,7 @@ async def get_invite_link(
     3. Returns the invite link and renders the initial invite view.
 
     Only the playlist owner can retrieve the invite link.
-    The playlist must be of type `collaborative`.
+    The playlist must have `collaborative` set to `true`.
     """
     ...
 
@@ -67,8 +66,9 @@ async def get_invite_link(
     response_model=AcceptInviteResponse,
     summary="Accept a collaboration invite",
     responses={
-        400: {"model": ErrorResponse, "description": "Invalid or expired invite token"},
-        409: {"model": ErrorResponse, "description": "User is already a collaborator"},
+        400: {"model": SpotifyError, "description": "Invalid or expired invite token"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        409: {"model": SpotifyError, "description": "User is already a collaborator"},
     },
 )
 async def accept_invite(body: AcceptInviteRequest):
@@ -92,11 +92,12 @@ async def accept_invite(body: AcceptInviteRequest):
     response_model=CollaboratorsListResponse,
     summary="List collaborators on a playlist",
     responses={
-        404: {"model": ErrorResponse, "description": "Playlist not found"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        404: {"model": SpotifyError, "description": "Playlist not found"},
     },
 )
 async def list_collaborators(
-    playlist_id: UUID = Path(..., description="ID of the playlist"),
+    playlist_id: str = Path(..., description="The Spotify ID of the playlist"),
 ):
     """
     Retrieve all collaborators for a given playlist, including the owner.
@@ -106,16 +107,17 @@ async def list_collaborators(
 
 @router.delete(
     "/playlists/{playlist_id}/collaborators/{user_id}",
-    response_model=SuccessMessage,
+    status_code=status.HTTP_200_OK,
     summary="Remove a collaborator from a playlist",
     responses={
-        403: {"model": ErrorResponse, "description": "Only the owner can remove collaborators"},
-        404: {"model": ErrorResponse, "description": "Playlist or collaborator not found"},
+        401: {"model": SpotifyError, "description": "Bad or expired token"},
+        403: {"model": SpotifyError, "description": "Only the owner can remove collaborators"},
+        404: {"model": SpotifyError, "description": "Playlist or collaborator not found"},
     },
 )
 async def remove_collaborator(
-    playlist_id: UUID = Path(..., description="ID of the playlist"),
-    user_id: UUID = Path(..., description="ID of the collaborator to remove"),
+    playlist_id: str = Path(..., description="The Spotify ID of the playlist"),
+    user_id: str = Path(..., description="The Spotify ID of the collaborator to remove"),
 ):
     """
     Remove a collaborator from a playlist. Only the playlist owner can perform this action.

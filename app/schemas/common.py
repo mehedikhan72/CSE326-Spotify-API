@@ -1,24 +1,23 @@
 from pydantic import BaseModel
-from datetime import datetime
-from enum import Enum
 
 
-class ErrorResponse(BaseModel):
-    detail: str
-    error_code: str | None = None
-
-
-class SuccessMessage(BaseModel):
+class SpotifyErrorBody(BaseModel):
+    status: int
     message: str
 
 
-class PaginationParams(BaseModel):
-    page: int = 1
-    page_size: int = 20
+class SpotifyError(BaseModel):
+    error: SpotifyErrorBody
 
 
-class PaginatedResponse(BaseModel):
+class SnapshotResponse(BaseModel):
+    snapshot_id: str
+
+
+class CursorPaginationMixin(BaseModel):
+    href: str
+    limit: int
+    next: str | None = None
+    offset: int
+    previous: str | None = None
     total: int
-    page: int
-    page_size: int
-    total_pages: int
