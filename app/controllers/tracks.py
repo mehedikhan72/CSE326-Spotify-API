@@ -56,7 +56,7 @@ router = APIRouter(tags=["Tracks"])
 )
 async def search_for_item(
     q: str = Query(..., min_length=1, description="Your search query. You can narrow results using field filters: artist, album, track."),
-    type: str = Query(..., description="A comma-separated list of item types to search across. Valid types: track, artist, album."),
+    type: str = Query(..., description="A comma-separated list of item types to search across. Valid types: any, track, artist, album."),
     limit: int = Query(20, ge=1, le=50, description="Maximum number of results to return. Default: 20. Maximum: 50."),
     offset: int = Query(0, ge=0, le=1000, description="The index of the first result to return. Default: 0. Maximum: 1000."),
 ):
