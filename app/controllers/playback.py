@@ -66,6 +66,19 @@ async def get_playback_state():
     Returns 204 if no playback is active.
 
     **Required scope:** `user-read-playback-state`
+
+    **Response** (`PlaybackStateResponse`):
+    - `device`: Active device — `id`, `name`, `type` (Computer/Smartphone/etc.),
+      `volume_percent` (0–100), `is_active`
+    - `repeat_state`: Current repeat mode — `"off"`, `"track"`, or `"context"`
+    - `shuffle_state`: Whether shuffle is enabled
+    - `context`: Current playback context (playlist/album/artist) — `type`, `href`, `uri`
+    - `timestamp`: Unix timestamp (ms) of the last state update
+    - `progress_ms`: Current playback position within the track in milliseconds
+    - `is_playing`: Whether audio is actively playing
+    - `item`: Full `TrackObject` of the currently playing track (see tracks controller)
+    - `currently_playing_type`: Type of the current item — `"track"`, `"episode"`, etc.
+    - `actions`: Flags for which actions are currently allowed (pause, seek, skip, shuffle, etc.)
     """
     ...
 
@@ -99,6 +112,8 @@ async def start_resume_playback(
     Omit body to resume current playback.
 
     **Required scope:** `user-modify-playback-state`
+
+    **Response:** Empty body on success (HTTP 204).
     """
     ...
 
@@ -127,6 +142,8 @@ async def pause_playback(
     **State Transition:** Active.Playing → Active.Paused (suspendAudio)
 
     **Required scope:** `user-modify-playback-state`
+
+    **Response:** Empty body on success (HTTP 204).
     """
     ...
 
@@ -157,6 +174,8 @@ async def skip_to_next(
     **State Transition:** Active → Loading (loadNextTrack) → Active.Playing
 
     **Required scope:** `user-modify-playback-state`
+
+    **Response:** Empty body on success (HTTP 204).
     """
     ...
 
@@ -186,6 +205,8 @@ async def seek_to_position(
     **State Transition:** Active → Loading (bufferFrom(newPosition)) → Active.Playing (seekCompleted)
 
     **Required scope:** `user-modify-playback-state`
+
+    **Response:** Empty body on success (HTTP 204).
     """
     ...
 

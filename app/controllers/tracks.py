@@ -73,6 +73,14 @@ async def search_for_item(
     - The `type` parameter controls which result sets are returned.
 
     **State Transition:** Idle → Searching → Results / Empty / Failure
+
+    **Response** (`SearchResponse`):
+    - `tracks`: Paginated result set containing:
+      - `href`: API URL for this result page
+      - `limit` / `offset` / `next` / `previous` / `total`: Pagination fields
+      - `items`: List of `TrackObject` — each has `id`, `name`, `uri`, `duration_ms`,
+        `artists` (list of `{id, name, href, uri}`), `album` (`{id, name, images, release_date}`),
+        `href`, `external_urls`, `is_local`
     """
     ...
 
@@ -98,6 +106,10 @@ async def get_recommended_tracks(
     1. On page load, controller calls `getExistingSongs()` from PlaylistDB.
     2. Uses existing songs to call `getSuggestedTracks()` from TrackDB.
     3. Returns suggested tracks before the user types any search query.
+
+    **Response** (`SuggestedTracksResponse`):
+    - `tracks`: Flat list of recommended `TrackObject` items — each has `id`, `name`, `uri`,
+      `duration_ms`, `artists`, `album`, `href`, `external_urls`, `is_local`
     """
     ...
 
@@ -126,6 +138,15 @@ async def get_playlist_items(
     **Flow** (from sequence diagram — Reorder or Remove Tracks):
     - Corresponds to `loadEditablePlaylist()` → `renderEditablePlaylist()`.
     - Returns tracks with their current positions, ordered by position.
+
+    **Response** (`PlaylistItemsResponse`):
+    - `href` / `limit` / `offset` / `next` / `previous` / `total`: Standard pagination fields
+    - `items`: List of `PlaylistTrackObject`, each containing:
+      - `added_at`: ISO 8601 timestamp when the track was added; `null` for local files
+      - `added_by`: Object identifying the user who added the track
+      - `is_local`: Whether this is a locally stored file (not on Spotify servers)
+      - `track`: Full `TrackObject` with `id`, `name`, `uri`, `duration_ms`,
+        `artists`, `album`, `href`, `external_urls`, `is_local`
     """
     ...
 
@@ -162,6 +183,9 @@ async def add_items_to_playlist(
     **State Transition:** Results → Validating → [!isDuplicate] Adding → Results
 
     **Required scope:** `playlist-modify-public` or `playlist-modify-private`
+
+    **Response** (`SnapshotResponse`):
+    - `snapshot_id`: New version identifier of the playlist after the addition
     """
     ...
 
@@ -197,6 +221,9 @@ async def reorder_playlist_items(
     **State Transition:** Reordering [loop] → Saving → Saved
 
     **Required scope:** `playlist-modify-public` or `playlist-modify-private`
+
+    **Response** (`SnapshotResponse`):
+    - `snapshot_id`: New version identifier of the playlist after reordering
     """
     ...
 
@@ -233,5 +260,8 @@ async def remove_playlist_items(
     **State Transition:** Idle → Removing → Confirming → Removed
 
     **Required scope:** `playlist-modify-public` or `playlist-modify-private`
+
+    **Response** (`SnapshotResponse`):
+    - `snapshot_id`: New version identifier of the playlist after removal
     """
     ...

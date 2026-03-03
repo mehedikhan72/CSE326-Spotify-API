@@ -50,6 +50,13 @@ async def get_share_menu(
     3. Returns playlist info and navigates to the share menu via `goToShareMenu()`.
 
     **State Transition:** Idle → PreparingShare → ShareMenuVisible (metadataLoaded / renderMenu)
+
+    **Response** (`ShareMenuResponse`):
+    - `playlist_id`: Spotify ID of the playlist
+    - `playlist_name`: Display name shown in the share menu
+    - `images`: Cover image list for preview thumbnails (each has `url`, `height`, `width`)
+    - `track_count`: Total number of tracks in the playlist
+    - `share_url`: Pre-generated URL ready to be shared
     """
     ...
 
@@ -77,5 +84,10 @@ async def get_share_link(
 
     **State Transition:** ShareMenuVisible → FetchShareLink → ShareMenuVisible (linkReady)
     On failure: FetchShareLink → Error (linkFailed / showError)
+
+    **Response** (`ShareLinkResponse`):
+    - `share_url`: The generated copy-to-clipboard URL
+    - `playlist_id`: Spotify ID of the playlist
+    - `playlist_name`: Display name used in link previews
     """
     ...

@@ -1,4 +1,20 @@
 from pydantic import BaseModel, Field
+from enum import Enum
+
+
+class SortField(str, Enum):
+    """Fields available for sorting playlist tracks"""
+    title = "title"
+    artist = "artist"
+    album = "album"
+    recently_added = "recently_added"
+    duration = "duration"
+
+
+class SortOrder(str, Enum):
+    """Sort order direction"""
+    asc = "asc"
+    desc = "desc"
 
 
 class ImageObject(BaseModel):
@@ -49,6 +65,13 @@ class UpdatePlaylistDetailsRequest(BaseModel):
     public: bool | None = Field(None, description="If true the playlist will be public, if false it will be private")
     collaborative: bool | None = Field(None, description="If true, other users can modify the playlist")
     description: str | None = Field(None, max_length=300, description="New playlist description")
+
+
+# --- Sort Playlist ---
+
+class SortPlaylistRequest(BaseModel):
+    sort_by: SortField = Field(..., description="Field to sort by (title, artist, album, recently_added, duration)")
+    order: SortOrder = Field(SortOrder.asc, description="Sort order (asc or desc). Default: asc")
 
 
 # --- Playlist List ---
